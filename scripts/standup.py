@@ -124,15 +124,18 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
         'due_today': [],
         'blocking': [],
         'high_priority': [],
+        'medium_priority': [],
         'completed': [],
         'upcoming': [],
     }
     
-    # #1 Priority (blocking tasks first, then high priority)
+    # #1 Priority (blocking tasks first, then high priority, then medium priority)
     if tasks_data['blocking']:
         output['priority'] = tasks_data['blocking'][0]
     elif tasks_data['high_priority']:
         output['priority'] = tasks_data['high_priority'][0]
+    elif tasks_data.get('medium_priority'):
+        output['priority'] = tasks_data['medium_priority'][0]
     
     # Due today
     output['due_today'] = tasks_data['due_today']
@@ -143,6 +146,9 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
     # Other high priority
     output['high_priority'] = [t for t in tasks_data['high_priority'] 
                                if t not in tasks_data['blocking']]
+    
+    # Medium priority (if no high priority tasks)
+    output['medium_priority'] = tasks_data.get('medium_priority', [])
     
     # Completed
     output['completed'] = tasks_data['done']
@@ -192,6 +198,12 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
     if output['high_priority']:
         lines.append("🔴 **High Priority:**")
         for t in output['high_priority']:
+            lines.append(f"  • {t['title']}")
+        lines.append("")
+    
+    if output.get('medium_priority') and not output['high_priority']:
+        lines.append("🟡 **Medium Priority:**")
+        for t in output['medium_priority']:
             lines.append(f"  • {t['title']}")
         lines.append("")
     
