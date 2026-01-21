@@ -5,121 +5,242 @@ description: "Personal task management with daily standups and weekly reviews. U
 
 # Task Tracker
 
-Personal task management for daily standups and weekly reviews.
+A personal task management skill for daily standups and weekly reviews. Tracks work tasks, surfaces priorities, and manages blockers.
 
-## File Locations
+---
 
-| File | Path |
-|------|------|
-| Active tasks | `~/clawd/memory/work/TASKS.md` |
-| Archive | `~/clawd/memory/work/ARCHIVE-YYYY-QN.md` |
-| Workflow | `~/clawd/memory/work/WORKFLOW.md` |
+## What This Skill Does
 
-## Quick Commands
+1. **Lists tasks** - Shows what's on your plate, filtered by priority, status, or deadline
+2. **Daily standup** - Shows today's #1 priority, blockers, and what was completed
+3. **Weekly review** - Summarizes last week, archives done items, plans this week
+4. **Add tasks** - Create new tasks with priority and due date
+5. **Complete tasks** - Mark tasks as done
+6. **Extract from notes** - Pull action items from meeting notes
+
+---
+
+## File Structure
+
+```
+~/clawd/memory/work/
+├── TASKS.md              # Active tasks (source of truth)
+├── ARCHIVE-2026-Q1.md    # Completed tasks by quarter
+└── WORKFLOW.md           # Workflow documentation
+```
+
+**TASKS.md format:**
+```markdown
+# Work Tasks
+
+## 🔴 High Priority (This Week)
+- [ ] **Set up Apollo.io** — Access for Lilla
+  - Due: ASAP
+  - Blocks: Lilla (podcast outreach)
+
+## 🟡 Medium Priority (This Week)
+- [ ] **Review newsletter concept** — Figma design
+  - Due: Before Feb 1
+
+## ✅ Done
+- [x] **Set up Calendly** — Configured with Zoom
+```
+
+---
+
+## Quick Start
+
+### View Your Tasks
+```bash
+python3 ~/clawd/skills/task-tracker/scripts/tasks.py list
+```
 
 ### Daily Standup
 ```bash
 python3 ~/clawd/skills/task-tracker/scripts/standup.py
 ```
-Output: Today's priorities, blockers, yesterday's completions.
 
 ### Weekly Review
 ```bash
 python3 ~/clawd/skills/task-tracker/scripts/weekly_review.py
 ```
-Output: Last week's done, pushed items, this week's priorities. Archives completed tasks.
 
-### Task Operations
+---
+
+## Commands Reference
+
+### List Tasks
 ```bash
-# List all tasks
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py list
+# All tasks
+tasks.py list
 
-# List by priority/status
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py list --priority high
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py list --status blocked
+# Only high priority
+tasks.py list --priority high
 
-# List by deadline
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py list --due today
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py list --due this-week
+# Only blocked
+tasks.py list --status blocked
 
-# Add task
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py add "Task description" --priority high --due 2026-01-29
-
-# Complete task (fuzzy match)
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py done "apollo"
-
-# Show blockers
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py blockers
-python3 ~/clawd/skills/task-tracker/scripts/tasks.py blockers --person lilla
+# Due today or this week
+tasks.py list --due today
+tasks.py list --due this-week
 ```
 
-### Extract Tasks from Meeting Notes
+### Add Task
 ```bash
-python3 ~/clawd/skills/task-tracker/scripts/extract_tasks.py --from-text "Meeting notes..."
+# Simple
+tasks.py add "Create IMCAS form"
+
+# With details
+tasks.py add "Create IMCAS form" \
+  --priority high \
+  --due "Before Jan 29" \
+  --blocks "Lilla (IMCAS conference)"
 ```
 
-## Natural Language Mapping
-
-| User Says | Action |
-|-----------|--------|
-| "daily standup" | Run standup.py, post to Journaling group |
-| "weekly review" | Run weekly_review.py, post summary, archive done |
-| "add task: X" | tasks.py add "X" |
-| "what's blocking [person]?" | tasks.py blockers --person [person] |
-| "mark [task] done" | tasks.py done "[task]" (fuzzy match) |
-| "what's due this week?" | tasks.py list --due this-week |
-| "show my tasks" | tasks.py list |
-| "extract tasks from: [notes]" | extract_tasks.py --from-text "[notes]" |
-
-## Task Format
-
-See [references/task-format.md](references/task-format.md) for full specification.
-
-```markdown
-- [ ] **Task title** — Brief description
-  - Owner: martin
-  - Due: 2026-01-29
-  - Status: Todo
-  - Blocks: lilla (reason)
+### Complete Task
+```bash
+tasks.py done "IMCAS"  # Fuzzy match - finds "Create IMCAS form"
 ```
 
-### Priority Levels
-- 🔴 **High**: Blocking others, critical deadline, revenue impact
-- 🟡 **Medium**: Important but not urgent
-- 🟢 **Low/Delegated**: Monitoring, no deadline pressure
+### Show Blockers
+```bash
+tasks.py blockers              # All blocking tasks
+tasks.py blockers --person lilla  # Only blocking Lilla
+```
 
-### Statuses
-- `Todo` → `In Progress` → `Done`
-- `Blocked` (waiting on external)
-- `Waiting` (delegated, monitoring)
+### Extract from Meeting Notes
+```bash
+extract_tasks.py --from-text "Meeting: discuss Apollo setup, Lilla to own"
+# Outputs: tasks.py add "Discuss Apollo setup" --priority medium
+#          tasks.py add "Lilla to own" --owner lilla
+```
 
-## Cron Jobs
+---
 
-| Job | Schedule | Action |
-|-----|----------|--------|
-| Daily Standup | Weekdays 8:30 AM | standup.py → Journaling group |
-| Weekly Review | Mondays 9:00 AM | weekly_review.py → Journaling group |
+## Priority Levels
 
-## Workflow Integration
+| Icon | Meaning | When to Use |
+|------|---------|-------------|
+| 🔴 **High** | Critical, blocking, deadline-driven | Revenue impact, blocking others |
+| 🟡 **Medium** | Important but not urgent | Reviews, feedback, planning |
+| 🟢 **Low** | Monitoring, delegated | Waiting on others, backlog |
 
-1. **After meetings:** Extract tasks with `extract_tasks.py`
-2. **Morning:** Daily standup surfaces #1 priority
-3. **Throughout day:** Update status as work progresses
-4. **End of week:** Weekly review archives done, plans next week
+---
 
-## Output Destinations
+## Status Workflow
 
-- **Telegram Journaling group:** Standup/review summaries
-- **Obsidian daily notes:** Logged via `journal-entry.sh`
-- **MEMORY.md:** Patterns promoted from weekly reviews
+```
+Todo → In Progress → Done
+      ↳ Blocked (waiting on external)
+      ↳ Waiting (delegated, monitoring)
+```
 
-## Telegram Integration
+---
 
-This skill supports custom slash commands for Telegram. See [TELEGRAM.md](TELEGRAM.md) for setup instructions.
+## Automation (Cron)
 
-**Quick setup:**
-1. Add `customCommands` to `channels.telegram` in clawdbot.json
-2. Update AGENTS.md with command recognition patterns
-3. Restart gateway
+| Job | When | What |
+|-----|------|------|
+| Daily Standup | Weekdays 8:30 AM | Posts to Telegram Journaling group |
+| Weekly Review | Mondays 9:00 AM | Posts summary, archives done items |
 
-**Available commands:** `/daily`, `/weekly`, `/done24h`, `/done7d`
+---
+
+## Natural Language Triggers
+
+| You Say | Skill Does |
+|---------|-----------|
+| "daily standup" | Runs standup.py, posts to Journaling |
+| "weekly review" | Runs weekly_review.py, posts summary |
+| "what's on my plate?" | Lists all tasks |
+| "what's blocking Lilla?" | Shows tasks blocking Lilla |
+| "mark IMCAS done" | Completes matching task |
+| "what's due this week?" | Lists tasks due this week |
+| "add task: X" | Adds task X to TASKS.md |
+| "extract tasks from: [notes]" | Parses notes, outputs add commands |
+
+---
+
+## Examples
+
+**Morning check-in:**
+```
+$ python3 scripts/standup.py
+
+📋 Daily Standup — Tuesday, January 21
+
+🎯 #1 Priority: Set up Apollo.io access for Lilla
+   ↳ Blocking: Lilla (podcast outreach)
+
+⏰ Due Today:
+  • Set up Apollo.io access for Lilla
+  • Set up Lilla on Calendly
+
+🔴 High Priority:
+  • Create IMCAS lead capture form (due: Before Jan 29)
+  • Post sales position job ad (due: ASAP)
+
+✅ Recently Completed:
+  • Add Lilla to Attio CRM
+```
+
+**Adding a task:**
+```
+$ python3 scripts/tasks.py add "Post sales job ad" --priority high --due ASAP
+
+✅ Added task: Post sales job ad
+```
+
+**Extracting from meeting notes:**
+```
+$ python3 scripts/extract_tasks.py --from-text "Meeting: Lilla needs Apollo access, create IMCAS form before Jan 29"
+
+# Extracted 2 task(s) from meeting notes
+# Run these commands to add them:
+
+tasks.py add "Apollo access for Lilla" --priority high
+tasks.py add "Create IMCAS lead capture form" --priority high --due "Before Jan 29"
+```
+
+---
+
+## Integration Points
+
+- **Telegram Journaling group:** Standup/review summaries posted automatically
+- **Obsidian:** Daily standups logged to `01-Daily/YYYY-MM-DD.md`
+- **MEMORY.md:** Patterns and recurring blockers promoted during weekly reviews
+- **Cron:** Automated standups and reviews
+
+---
+
+## Troubleshooting
+
+**"Tasks file not found"**
+```bash
+# Create from template
+python3 scripts/init.py
+```
+
+**Tasks not showing up**
+- Check TASKS.md exists at `~/clawd/memory/work/TASKS.md`
+- Verify task format (checkboxes `- [ ]`, headers `## 🔴`)
+- Run `tasks.py list` to debug
+
+**Date parsing issues**
+- Due dates support: `ASAP`, `YYYY-MM-DD`, `Before Jan 29`, `Before IMCAS`
+- `check_due_date()` handles common formats
+
+---
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/tasks.py` | Main CLI - list, add, done, blockers, archive |
+| `scripts/standup.py` | Daily standup generator |
+| `scripts/weekly_review.py` | Weekly review generator |
+| `scripts/extract_tasks.py` | Extract tasks from meeting notes |
+| `scripts/utils.py` | Shared utilities (DRY) |
+| `scripts/init.py` | Initialize new TASKS.md from template |
+| `references/task-format.md` | Task format specification |
+| `assets/templates/TASKS.md` | Template for new task files |
