@@ -125,6 +125,7 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
         'blocking': [],
         'high_priority': [],
         'medium_priority': [],
+        'delegated': [],
         'completed': [],
         'upcoming': [],
     }
@@ -149,6 +150,9 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
     
     # Medium priority (if no high priority tasks)
     output['medium_priority'] = tasks_data.get('medium_priority', [])
+    
+    # Delegated
+    output['delegated'] = tasks_data.get('delegated', [])
     
     # Completed
     output['completed'] = tasks_data['done']
@@ -201,10 +205,49 @@ def generate_standup(date_str: str = None, json_output: bool = False) -> str | d
             lines.append(f"  • {t['title']}")
         lines.append("")
     
-    if output.get('medium_priority') and not output['high_priority']:
-        lines.append("🟡 **Medium Priority:**")
-        for t in output['medium_priority']:
-            lines.append(f"  • {t['title']}")
+    # Group and display tasks by category
+    def group_by_category(tasks):
+        """Group tasks by category, return dict."""
+        categories = {}
+        for t in tasks:
+            cat = t.get('category', 'Uncategorized')
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(t)
+        return categories
+    
+    # High priority by category
+    if output['high_priority']:
+        lines.append("🔴 **High Priority:**")
+        by_cat = group_by_category(output['high_priority'])
+        for cat in sorted(by_cat.keys()):
+            lines.append(f"  **{cat}:**")
+            for t in by_cat[cat]:
+                lines.append(f"    • {t['title']}")
+        lines.append("")
+    
+    # Medium priority by category (if no high priority)
+    if output.get('medium_priority'):
+        if not output['high_priority']:
+            lines.append("🟡 **Medium Priority:**")
+        else:
+            lines.append("🟡 **Medium Priority (Other):**")
+        by_cat = group_by_category(output['medium_priority'])
+        for cat in sorted(by_cat.keys()):
+            lines.append(f"  **{cat}:**")
+            for t in by_cat[cat]:
+                lines.append(f"    • {t['title']}")
+        lines.append("")
+    
+    # Delegated by category
+    delegated = output.get('delegated', [])
+    if delegated:
+        lines.append("🟢 **Delegated / Waiting:**")
+        by_cat = group_by_category(delegated)
+        for cat in sorted(by_cat.keys()):
+            lines.append(f"  **{cat}:**")
+            for t in by_cat[cat]:
+                lines.append(f"    • {t['title']}")
         lines.append("")
     
     if output['completed']:

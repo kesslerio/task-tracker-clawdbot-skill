@@ -43,15 +43,24 @@ def parse_tasks(content: str) -> dict:
     }
     
     current_section = None
+    current_category = None
     current_task = None
     today = datetime.now().date()
     
     for line in content.split('\n'):
-        # Detect section headers
+        # Detect section headers (priority level)
         if line.startswith('## '):
             section_match = re.match(r'## ([🔴🟡🟢📅✅]) (.+)', line)
             if section_match:
                 current_section = section_match.group(1)
+                current_category = None  # Reset category on new section
+            continue
+        
+        # Detect category headers (Marketing, Sales, etc.)
+        if line.startswith('### '):
+            category_match = re.match(r'### (.+)', line)
+            if category_match:
+                current_category = category_match.group(1).strip()
             continue
         
         # Detect task line
@@ -67,6 +76,7 @@ def parse_tasks(content: str) -> dict:
                 'description': description,
                 'done': done,
                 'section': current_section,
+                'category': current_category,
                 'due': None,
                 'blocks': None,
             }
