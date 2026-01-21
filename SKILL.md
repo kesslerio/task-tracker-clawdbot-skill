@@ -61,7 +61,7 @@ A personal task management skill for daily standups and weekly reviews. Tracks w
   - Due: Before Feb 1
 
 ## ✅ Done
-- [x] **Set up Calendly** — Configured with Zoom
+- [x] **Set up team calendar** — Shared Google Calendar
 ```
 
 ---
@@ -106,31 +106,31 @@ tasks.py list --due this-week
 ### Add Task
 ```bash
 # Simple
-tasks.py add "Create IMCAS form"
+tasks.py add "Draft project proposal"
 
 # With details
-tasks.py add "Create IMCAS form" \
+tasks.py add "Draft project proposal" \
   --priority high \
-  --due "Before Jan 29" \
-  --blocks "Lilla (IMCAS conference)"
+  --due "Before Mar 15" \
+  --blocks "Sarah (client review)"
 ```
 
 ### Complete Task
 ```bash
-tasks.py done "IMCAS"  # Fuzzy match - finds "Create IMCAS form"
+tasks.py done "proposal"  # Fuzzy match - finds "Draft project proposal"
 ```
 
 ### Show Blockers
 ```bash
 tasks.py blockers              # All blocking tasks
-tasks.py blockers --person lilla  # Only blocking Lilla
+tasks.py blockers --person sarah  # Only blocking Sarah
 ```
 
 ### Extract from Meeting Notes
 ```bash
-extract_tasks.py --from-text "Meeting: discuss Apollo setup, Lilla to own"
-# Outputs: tasks.py add "Discuss Apollo setup" --priority medium
-#          tasks.py add "Lilla to own" --owner lilla
+extract_tasks.py --from-text "Meeting: discuss Q1 planning, Sarah to own budget review"
+# Outputs: tasks.py add "Discuss Q1 planning" --priority medium
+#          tasks.py add "Sarah to own budget review" --owner sarah
 ```
 
 ---
@@ -187,37 +187,38 @@ $ python3 scripts/standup.py
 
 📋 Daily Standup — Tuesday, January 21
 
-🎯 #1 Priority: Set up Apollo.io access for Lilla
-   ↳ Blocking: Lilla (podcast outreach)
+🎯 #1 Priority: Complete project proposal draft
+   ↳ Blocking: Sarah (client review)
 
 ⏰ Due Today:
-  • Set up Apollo.io access for Lilla
-  • Set up Lilla on Calendly
+  • Complete project proposal draft
+  • Schedule team sync
 
 🔴 High Priority:
-  • Create IMCAS lead capture form (due: Before Jan 29)
-  • Post sales position job ad (due: ASAP)
+  • Review Q1 budget (due: Before Mar 15)
+  • Draft blog post (due: ASAP)
 
 ✅ Recently Completed:
-  • Add Lilla to Attio CRM
+  • Set up shared calendar
+  • Update team documentation
 ```
 
 **Adding a task:**
 ```
-$ python3 scripts/tasks.py add "Post sales job ad" --priority high --due ASAP
+$ python3 scripts/tasks.py add "Draft blog post" --priority high --due ASAP
 
-✅ Added task: Post sales job ad
+✅ Added task: Draft blog post
 ```
 
 **Extracting from meeting notes:**
 ```
-$ python3 scripts/extract_tasks.py --from-text "Meeting: Lilla needs Apollo access, create IMCAS form before Jan 29"
+$ python3 scripts/extract_tasks.py --from-text "Meeting: Sarah needs budget review, create project timeline"
 
 # Extracted 2 task(s) from meeting notes
 # Run these commands to add them:
 
-tasks.py add "Apollo access for Lilla" --priority high
-tasks.py add "Create IMCAS lead capture form" --priority high --due "Before Jan 29"
+tasks.py add "Budget review for Sarah" --priority high
+tasks.py add "Create project timeline" --priority medium
 ```
 
 ---
@@ -245,7 +246,7 @@ python3 scripts/init.py
 - Run `tasks.py list` to debug
 
 **Date parsing issues**
-- Due dates support: `ASAP`, `YYYY-MM-DD`, `Before Jan 29`, `Before IMCAS`
+- Due dates support: `ASAP`, `YYYY-MM-DD`, `Before Mar 15`, `Before product launch`
 - `check_due_date()` handles common formats
 
 ---
