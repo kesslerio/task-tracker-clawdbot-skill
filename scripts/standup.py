@@ -4,166 +4,111 @@ Daily Standup Generator - Creates a concise summary of today's priorities.
 """
 
 import argparse
-import re
+import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-TASKS_FILE = Path.home() / "clawd" / "memory" / "work" / "TASKS.md"
+from utils import load_tasks, check_due_date
 
 
-def parse_tasks(content: str) -> dict:
-    """Parse TASKS.md into categorized task lists."""
-    result = {
-        'high_priority': [],
-        'blocking': [],
+def generate_standup(date_str: str = None, json_output: bool = False) -> str | dict:
+    """Generate daily standup summary.
+    
+    Args:
+        date_str: Optional date string (YYYY-MM-DD) for standup
+        json_output: If True, return dict instead of markdown
+    
+    Returns:
+        String summary (default) or dict if json_output=True
+    """
+    _, tasks_data = load_tasks()
+    
+    today = datetime.now()
+    if date_str:
+        try:
+            standup_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            standup_date = today.date()
+    else:
+        standup_date = today.date()
+    
+    date_display = standup_date.strftime("%A, %B %d")
+    
+    # Build output
+    output = {
+        'date': str(standup_date),
+        'date_display': date_display,
+        'priority': None,
         'due_today': [],
-        'done': [],
+        'blocking': [],
+        'high_priority': [],
+        'completed': [],
         'upcoming': [],
     }
     
-    current_section = None
-    current_task = None
-    today = datetime.now().date()
+    # #1 Priority (blocking tasks first, then high priority)
+    if tasks_data['blocking']:
+        output['priority'] = tasks_data['blocking'][0]
+    elif tasks_data['high_priority']:
+        output['priority'] = tasks_data['high_priority'][0]
     
-    for line in content.split('\n'):
-        # Detect section headers
-        if line.startswith('## '):
-            section_match = re.match(r'## ([🔴🟡🟢📅✅]) (.+)', line)
-            if section_match:
-                emoji = section_match.group(1)
-                current_section = emoji
-            continue
-        
-        # Detect task line
-        task_match = re.match(r'^- \[([ x])\] \*\*(.+?)\*\*(.*)$', line)
-        if task_match:
-            done = task_match.group(1) == 'x'
-            title = task_match.group(2).strip()
-            rest = task_match.group(3).strip()
-            description = rest.lstrip('—').lstrip('-').strip() if rest else ''
-            
-            current_task = {
-                'title': title,
-                'description': description,
-                'done': done,
-                'section': current_section,
-                'due': None,
-                'blocks': None,
-            }
-            
-            # Categorize immediately based on section
-            if done:
-                result['done'].append(current_task)
-            elif current_section == '🔴':
-                result['high_priority'].append(current_task)
-            elif current_section == '📅':
-                result['upcoming'].append(current_task)
-            
-            continue
-        
-        # Detect task metadata
-        if current_task and line.strip().startswith('-'):
-            meta_line = line.strip()[1:].strip()
-            
-            if meta_line.lower().startswith('due:'):
-                due_str = meta_line.split(':', 1)[1].strip()
-                current_task['due'] = due_str
-                
-                # Check if due today or ASAP
-                if due_str.lower() in ['asap', 'immediately', 'today']:
-                    if current_task not in result['due_today']:
-                        result['due_today'].append(current_task)
-                else:
-                    # Try to parse date - strip "Before" prefix first
-                    date_str = due_str
-                    if due_str.lower().startswith('before '):
-                        date_str = due_str[7:].strip()  # Remove "Before " prefix
-                    
-                    # Try various formats (full and abbreviated month names)
-                    for fmt in ['%Y-%m-%d', '%B %d', '%b %d']:
-                        try:
-                            due_date = datetime.strptime(date_str, fmt).date()
-                            if due_date.year == 1900:
-                                due_date = due_date.replace(year=today.year)
-                            
-                            if due_date <= today:
-                                if current_task not in result['due_today']:
-                                    result['due_today'].append(current_task)
-                            break
-                        except ValueError:
-                            continue
-            
-            elif meta_line.lower().startswith('blocks:'):
-                blocks = meta_line.split(':', 1)[1].strip()
-                current_task['blocks'] = blocks
-                if not current_task['done'] and current_task not in result['blocking']:
-                    result['blocking'].append(current_task)
+    # Due today
+    output['due_today'] = tasks_data['due_today']
     
-    return result
-
-
-def generate_standup(date_str: str = None) -> str:
-    """Generate daily standup summary."""
-    if not TASKS_FILE.exists():
-        return (f"❌ Tasks file not found: {TASKS_FILE}\n\n"
-                f"To create a new tasks file, run:\n"
-                f"  python3 {Path(__file__).parent / 'init.py'}\n")
+    # Blocking others
+    output['blocking'] = tasks_data['blocking']
     
-    content = TASKS_FILE.read_text()
-    tasks = parse_tasks(content)
+    # Other high priority
+    output['high_priority'] = [t for t in tasks_data['high_priority'] 
+                               if t not in tasks_data['blocking']]
     
-    today = datetime.now()
-    date_display = today.strftime("%A, %B %d")
+    # Completed
+    output['completed'] = tasks_data['done']
     
+    # Upcoming
+    output['upcoming'] = tasks_data['upcoming']
+    
+    if json_output:
+        return output
+    
+    # Format as markdown
     lines = [f"📋 **Daily Standup — {date_display}**\n"]
     
-    # #1 Priority
-    if tasks['blocking']:
-        top = tasks['blocking'][0]
-        lines.append(f"🎯 **#1 Priority:** {top['title']}")
-        if top.get('blocks'):
-            lines.append(f"   ↳ Blocking: {top['blocks']}")
-        lines.append("")
-    elif tasks['high_priority']:
-        top = tasks['high_priority'][0]
-        lines.append(f"🎯 **#1 Priority:** {top['title']}")
+    if output['priority']:
+        priority = output['priority']
+        lines.append(f"🎯 **#1 Priority:** {priority['title']}")
+        if priority.get('blocks'):
+            lines.append(f"   ↳ Blocking: {priority['blocks']}")
         lines.append("")
     
-    # Due Today / ASAP
-    if tasks['due_today']:
+    if output['due_today']:
         lines.append("⏰ **Due Today:**")
-        for t in tasks['due_today'][:5]:
+        for t in output['due_today'][:5]:
             lines.append(f"  • {t['title']}")
         lines.append("")
     
-    # Blockers
-    if tasks['blocking']:
+    if output['blocking']:
         lines.append("🚧 **Blocking Others:**")
-        for t in tasks['blocking'][:3]:
+        for t in output['blocking'][:3]:
             lines.append(f"  • {t['title']} → {t.get('blocks', '?')}")
         lines.append("")
     
-    # High Priority (not already shown)
-    other_high = [t for t in tasks['high_priority'] 
-                  if t not in tasks['due_today'] and t not in tasks['blocking']]
-    if other_high:
+    if output['high_priority']:
         lines.append("🔴 **High Priority:**")
-        for t in other_high[:3]:
+        for t in output['high_priority'][:3]:
             lines.append(f"  • {t['title']}")
         lines.append("")
     
-    # Yesterday's completions
-    if tasks['done']:
-        lines.append(f"✅ **Recently Completed:** {len(tasks['done'])} items")
-        for t in tasks['done'][:3]:
+    if output['completed']:
+        lines.append(f"✅ **Recently Completed:** {len(output['completed'])} items")
+        for t in output['completed'][:3]:
             lines.append(f"  • {t['title']}")
         lines.append("")
     
-    # Upcoming deadlines
-    if tasks['upcoming']:
+    if output['upcoming']:
         lines.append("📅 **Upcoming:**")
-        for t in tasks['upcoming'][:3]:
+        for t in output['upcoming'][:3]:
             due_str = f" ({t['due']})" if t.get('due') else ""
             lines.append(f"  • {t['title']}{due_str}")
     
@@ -177,8 +122,12 @@ def main():
     
     args = parser.parse_args()
     
-    output = generate_standup(args.date)
-    print(output)
+    result = generate_standup(date_str=args.date, json_output=args.json)
+    
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(result)
 
 
 if __name__ == '__main__':
