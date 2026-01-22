@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Task Tracker CLI - CRUD operations for work tasks.
+Task Tracker CLI - Supports both Work and Personal tasks.
 """
 
 import argparse
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from utils import (
-    TASKS_FILE,
-    ARCHIVE_DIR,
-    get_current_quarter,
+    get_tasks_file,
+    get_section_display_name,
     parse_tasks,
     load_tasks,
     check_due_date,
+    get_current_quarter,
 )
 
 
 def list_tasks(args):
     """List tasks with optional filters."""
-    _, tasks_data = load_tasks()
+    _, tasks_data = load_tasks(args.personal)
     tasks = tasks_data['all']
     
     # Apply filters
@@ -28,74 +28,63 @@ def list_tasks(args):
     
     if args.priority:
         priority_map = {
-            'high': 'high_priority',
-            'medium': 'medium_priority',
-            'low': 'delegated',
+            'high': 'q1',
+            'medium': 'q2',
+            'low': 'backlog',
         }
         target_key = priority_map.get(args.priority.lower())
         if target_key:
             filtered = tasks_data.get(target_key, [])
     
     if args.status:
-        # Normalize status: replace hyphens with spaces for comparison
-        # Handle both "in-progress" (CLI) and "In Progress" (stored)
         normalized_status = args.status.lower().replace('-', ' ')
         filtered = [t for t in filtered if t.get('status', '').lower().replace('-', ' ') == normalized_status]
     
     if args.due:
         filtered = [t for t in filtered if check_due_date(t.get('due', ''), args.due)]
     
-    # Output
     if not filtered:
-        print("No tasks found matching criteria.")
+        task_type = "Personal" if args.personal else "Work"
+        print(f"No {task_type} tasks found matching criteria.")
         return
     
-    print(f"\n📋 Tasks ({len(filtered)} items)\n")
+    print(f"\n📋 {('Personal' if args.personal else 'Work')} Tasks ({len(filtered)} items)\n")
     
     current_section = None
     for task in filtered:
         section = task.get('section')
         if section != current_section:
-            section_names = {
-                '🔴': 'High Priority',
-                '🟡': 'Medium Priority',
-                '🟢': 'Delegated',
-                '📅': 'Upcoming',
-                '✅': 'Done',
-            }
             current_section = section
-            print(f"### {section_names.get(section, section or 'Uncategorized')}\n")
+            print(f"### {get_section_display_name(section, args.personal)}\n")
         
         checkbox = '✅' if task['done'] else '⬜'
-        due_str = f" (due: {task['due']})" if task.get('due') else ''
-        blocks_str = f" [blocks: {task['blocks']}]" if task.get('blocks') else ''
+        due_str = f" (🗓️{task['due']})" if task.get('due') else ''
+        area_str = f" [{task.get('area')}]" if task.get('area') else ''
         
-        print(f"{checkbox} **{task['title']}**{due_str}{blocks_str}")
+        print(f"{checkbox} **{task['title']}**{due_str}{area_str}")
         if task.get('description'):
             print(f"   {task['description']}")
 
 
 def add_task(args):
     """Add a new task."""
-    # Import here to avoid circular dependency
-    from utils import TASKS_FILE
-    
-    content = TASKS_FILE.read_text()
+    tasks_file = get_tasks_file(args.personal)
+    content = tasks_file.read_text()
     
     # Build task entry
     priority_section = {
-        'high': '🔴 High Priority',
-        'medium': '🟡 Medium Priority',
-        'low': '🟢 Delegated / Waiting',
-    }.get(args.priority, '🟡 Medium Priority')
+        'high': '🔴 Q1',
+        'medium': '🟡 Q2',
+        'low': '⚪ Backlog',
+    }.get(args.priority, '🟡 Q2')
     
     task_lines = [f'- [ ] **{args.title}**']
-    if args.owner and args.owner != 'martin':
-        task_lines.append(f'  - Owner: {args.owner}')
     if args.due:
-        task_lines.append(f'  - Due: {args.due}')
-    if args.blocks:
-        task_lines.append(f'  - Blocks: {args.blocks}')
+        task_lines.append(f'  🗓️{args.due}')
+    if args.owner and args.owner != 'martin' and args.owner != 'me':
+        task_lines.append(f'  owner:: {args.owner}')
+    if args.area:
+        task_lines.append(f'  area:: {args.area}')
     
     task_entry = '\n'.join(task_lines)
     
@@ -107,18 +96,18 @@ def add_task(args):
     if match:
         insert_content = match.group(2).rstrip() + '\n\n' + task_entry + '\n'
         new_content = content[:match.start(2)] + insert_content + content[match.end(2):]
-        TASKS_FILE.write_text(new_content)
-        print(f"✅ Added task: {args.title}")
+        tasks_file.write_text(new_content)
+        task_type = "Personal" if args.personal else "Work"
+        print(f"✅ Added {task_type} task: {args.title}")
     else:
         print(f"⚠️ Section '{priority_section}' not found. Add manually.")
 
 
 def done_task(args):
     """Mark a task as done using fuzzy matching."""
-    from utils import TASKS_FILE
-    
-    content = TASKS_FILE.read_text()
-    tasks_data = parse_tasks(content)
+    tasks_file = get_tasks_file(args.personal)
+    content = tasks_file.read_text()
+    tasks_data = parse_tasks(content, args.personal)
     tasks = tasks_data['all']
     
     query = args.query.lower()
@@ -142,14 +131,15 @@ def done_task(args):
     new_line = old_line.replace('- [ ]', '- [x]')
     
     new_content = content.replace(old_line, new_line)
-    TASKS_FILE.write_text(new_content)
-    print(f"✅ Completed: {task['title']}")
+    tasks_file.write_text(new_content)
+    task_type = "Personal" if args.personal else "Work"
+    print(f"✅ Completed {task_type} task: {task['title']}")
 
 
 def show_blockers(args):
     """Show tasks that are blocking others."""
-    _, tasks_data = load_tasks()
-    blockers = tasks_data['blocking']
+    _, tasks_data = load_tasks(args.personal)
+    blockers = [t for t in tasks_data['all'] if t.get('blocks') and not t['done']]
     
     if args.person:
         blockers = [t for t in blockers if args.person.lower() in t['blocks'].lower()]
@@ -170,10 +160,11 @@ def show_blockers(args):
 
 def archive_done(args):
     """Archive completed tasks to quarterly file."""
-    from utils import TASKS_FILE, ARCHIVE_DIR, get_current_quarter
+    from utils import ARCHIVE_DIR
     
-    content = TASKS_FILE.read_text()
-    tasks_data = parse_tasks(content)
+    tasks_file = get_tasks_file(args.personal)
+    content = tasks_file.read_text()
+    tasks_data = parse_tasks(content, args.personal)
     done_tasks = tasks_data['done']
     
     if not done_tasks:
@@ -184,7 +175,8 @@ def archive_done(args):
     quarter = get_current_quarter()
     archive_file = ARCHIVE_DIR / f"ARCHIVE-{quarter}.md"
     
-    archive_entry = f"\n## Archived {datetime.now().strftime('%Y-%m-%d')}\n\n"
+    task_type = "Personal" if args.personal else "Work"
+    archive_entry = f"\n## Archived {datetime.now().strftime('%Y-%m-%d')} ({task_type})\n\n"
     for task in done_tasks:
         archive_entry += f"- ✅ **{task['title']}**\n"
     
@@ -197,7 +189,7 @@ def archive_done(args):
     archive_content += archive_entry
     archive_file.write_text(archive_content)
     
-    # Remove from done section in TASKS.md
+    # Remove from done section
     import re
     done_section_pattern = r'(## ✅ Done.*?\n\n).*?(\n## |\n---|\Z)'
     new_content = re.sub(
@@ -207,12 +199,14 @@ def archive_done(args):
         flags=re.DOTALL
     )
     
-    TASKS_FILE.write_text(new_content)
-    print(f"✅ Archived {len(done_tasks)} tasks to {archive_file.name}")
+    tasks_file.write_text(new_content)
+    print(f"✅ Archived {len(done_tasks)} {task_type} tasks to {archive_file.name}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Task Tracker CLI')
+    parser = argparse.ArgumentParser(description='Task Tracker CLI (Work & Personal)')
+    parser.add_argument('--personal', action='store_true', help='Use Personal Tasks instead of Work Tasks')
+    
     subparsers = parser.add_subparsers(dest='command', required=True)
     
     # List command
@@ -226,9 +220,9 @@ def main():
     add_parser = subparsers.add_parser('add', help='Add a task')
     add_parser.add_argument('title', help='Task title')
     add_parser.add_argument('--priority', default='medium', choices=['high', 'medium', 'low'])
-    add_parser.add_argument('--due', help='Due date (YYYY-MM-DD or description)')
-    add_parser.add_argument('--owner', default='martin')
-    add_parser.add_argument('--blocks', help='Who/what this blocks')
+    add_parser.add_argument('--due', help='Due date (YYYY-MM-DD)')
+    add_parser.add_argument('--owner', default='me')
+    add_parser.add_argument('--area', help='Area/category')
     add_parser.set_defaults(func=add_task)
     
     # Done command
