@@ -2,7 +2,7 @@
 name: task-tracker
 description: "Personal task management with daily standups and weekly reviews. Supports both Work and Personal tasks from Obsidian. Use when: (1) User says 'daily standup' or asks what's on my plate, (2) User says 'weekly review' or asks about last week's progress, (3) User wants to add/update/complete tasks, (4) User asks about blockers or deadlines, (5) User shares meeting notes and wants tasks extracted, (6) User asks 'what's due this week' or similar."
 homepage: https://github.com/kesslerio/task-tracker-clawdbot-skill
-metadata: {"clawdbot":{"emoji":"📋","requires":{"files":["~/Obsidian/03-Areas/ShapeScale/Work Tasks.md","~/Obsidian/03-Areas/Personal/Personal Tasks.md"]},"install":[{"id":"verify-obsidian","kind":"check","label":"Verify Obsidian vault access"}]}}
+metadata: {"clawdbot":{"emoji":"📋","requires":{"env":["TASK_TRACKER_WORK_FILE","TASK_TRACKER_PERSONAL_FILE"]},"install":[{"id":"verify-paths","kind":"check","label":"Verify task file paths are configured"}]}}
 ---
 
 <div align="center">
@@ -23,7 +23,7 @@ metadata: {"clawdbot":{"emoji":"📋","requires":{"files":["~/Obsidian/03-Areas/
 
 # Task Tracker
 
-A personal task management skill for daily standups and weekly reviews. Tracks work and personal tasks from your Obsidian vault, surfaces priorities, and manages blockers.
+A personal task management skill for daily standups and weekly reviews. Tracks work and personal tasks from your Obsidian vault (or standalone markdown files), surfaces priorities, and manages blockers.
 
 ---
 
@@ -39,16 +39,41 @@ A personal task management skill for daily standups and weekly reviews. Tracks w
 
 ---
 
+## Configuration
+
+Configure paths via environment variables in your shell profile or `.clawdbot/.env`:
+
+```bash
+# Required: Point to your task files
+export TASK_TRACKER_WORK_FILE="$HOME/Obsidian/03-Areas/Work/Work Tasks.md"
+export TASK_TRACKER_PERSONAL_FILE="$HOME/Obsidian/03-Areas/Personal/Personal Tasks.md"
+
+# Optional: Custom archive location
+export TASK_TRACKER_ARCHIVE_DIR="$HOME/clawd/memory/work"
+
+# Optional: Legacy fallback (if Obsidian files don't exist)
+export TASK_TRACKER_LEGACY_FILE="$HOME/clawd/memory/work/TASKS.md"
+```
+
+**Default paths (if not configured):**
+- Work: `~/Obsidian/03-Areas/Work/Work Tasks.md`
+- Personal: `~/Obsidian/03-Areas/Personal/Personal Tasks.md`
+- Legacy: `~/clawd/memory/work/TASKS.md`
+
+---
+
 ## Obsidian Setup
 
-This skill reads tasks directly from your Obsidian vault. No separate task files needed.
+This skill reads tasks directly from markdown files. Works best with Obsidian but any markdown editor works.
 
-### Required Files
+### Required Obsidian Plugins
 
-| Task Type | Obsidian Path |
-|-----------|---------------|
-| Work | `~/Obsidian/03-Areas/ShapeScale/Work Tasks.md` |
-| Personal | `~/Obsidian/03-Areas/Personal/Personal Tasks.md` |
+| Plugin | Purpose | Required? |
+|--------|---------|-----------|
+| **Dataview** | TASK queries in daily notes | ✅ Yes |
+| **Templater** | Auto-populate daily note templates | Optional |
+| **Periodic Notes** | Daily/weekly note templates | Optional |
+| **Tasks** | Advanced task management | Optional |
 
 ### Task Format
 
@@ -66,47 +91,67 @@ Tasks use the **emoji date format** for Dataview compatibility:
 | `🗓️YYYY-MM-DD` | Due date | `🗓️2026-01-22` |
 | `area::` | Category/area | `area:: Sales` |
 | `goal::` | Weekly goal link | `goal:: [[2026-W04]]` |
-| `owner::` | Task owner | `owner:: Lilla` |
+| `owner::` | Task owner | `owner:: Sarah` |
 
-#### Section Structure (Eisenhower Matrix)
+### File Structure (Eisenhower Matrix)
 
 ```markdown
+# Work Tasks
+
 ## 🔴 Q1: Do Now (Urgent & Important)
+
+> Max 5 tasks. If overloaded, triage to Q2 or delegate.
+
+- [ ] **Critical task** 🗓️2026-01-22 area:: Operations
+
 ## 🟡 Q2: Schedule (Important, Not Urgent)
+
+> Deep work, strategic tasks. Schedule on calendar.
+
+- [ ] **Strategic task** 🗓️2026-01-26 area:: Planning
+
 ## 🟠 Q3: Waiting (Blocked on External)
+
+> Tasks waiting on others or external factors.
+
+- [ ] **Blocked task** owner:: Sarah
+
 ## 👥 Team Tasks (Monitor/Check-in)
+
+> Delegated tasks you're monitoring.
+
+- [ ] **Team member's task** owner:: Alex
+
 ## ⚪ Q4: Backlog (Someday/Maybe)
+
+> Low priority, not scheduled.
+
+- [ ] **Future idea**
+
 ## ✅ Done
+
+- [x] **Completed task** (Jan 22)
 ```
 
-### Personal Tasks Section Structure
+### Personal Tasks Structure
 
 ```markdown
+# Personal Tasks
+
 ## 🔴 Must Do Today
+- [ ] **Urgent personal task** 🗓️2026-01-22
+
 ## 🟡 Should Do This Week
+- [ ] **Important task** 🗓️2026-01-26
+
 ## 🟠 Waiting On
+- [ ] **Waiting for response**
+
 ## ⚪ Backlog
+- [ ] **Someday task**
+
 ## ✅ Done
-```
-
----
-
-## File Structure
-
-```
-~/Obsidian/
-├── 03-Areas/
-│   ├── ShapeScale/
-│   │   └── Work Tasks.md      # Work tasks (Eisenhower format)
-│   └── Personal/
-│       └── Personal Tasks.md   # Personal tasks
-```
-
-**Legacy format (deprecated):**
-```
-~/clawd/memory/work/
-├── TASKS.md              # No longer used
-└── ARCHIVE-YYYY-QX.md    # Archived completed tasks
+- [x] **Completed** (Jan 22)
 ```
 
 ---
@@ -175,6 +220,9 @@ tasks.py add "Draft project proposal" --priority high --due 2026-01-23
 
 # Personal task
 tasks.py --personal add "Call mom" --priority high --due 2026-01-22
+
+# With area
+tasks.py add "Review budget" --priority medium --due 2026-01-25 --area Finance
 ```
 
 ### Complete Task
@@ -219,23 +267,27 @@ extract_tasks.py --from-text "Meeting: discuss Q1 planning, Sarah to own budget 
 
 ---
 
-## Status Workflow
-
-```
-Todo → In Progress → Done
-      ↳ Blocked (waiting on external)
-      ↳ Waiting (delegated, monitoring)
-```
-
----
-
 ## Automation (Cron)
 
-| Job | When | What |
-|-----|------|------|
-| Daily Work Standup | Weekdays 8:30 AM | Posts to Telegram Journaling group |
-| Daily Personal Standup | Daily 8:00 AM | Posts to Telegram Journaling group |
-| Weekly Review | Mondays 9:00 AM | Posts summary, archives done items |
+Set up cron jobs for automated standups:
+
+| Job | Schedule | Command |
+|-----|----------|---------|
+| Daily Work Standup | Weekdays 8:30 AM | `python3 scripts/standup.py` |
+| Daily Personal Standup | Daily 8:00 AM | `python3 scripts/personal_standup.py` |
+| Weekly Review | Mondays 9:00 AM | `python3 scripts/weekly_review.py` |
+
+Example Clawdbot cron:
+```bash
+clawdbot cron add \
+  --name "Daily Work Standup" \
+  --cron "30 8 * * 1-5" \
+  --tz "America/Los_Angeles" \
+  --session "isolated" \
+  --message "Run work standup" \
+  --channel "telegram:YOUR_GROUP_ID" \
+  --deliver
+```
 
 ---
 
@@ -243,78 +295,53 @@ Todo → In Progress → Done
 
 | You Say | Skill Does |
 |---------|-----------|
-| "daily standup" | Runs work standup, posts to Journaling |
-| "personal standup" | Runs personal standup, posts to Journaling |
+| "daily standup" | Runs work standup, posts to channel |
+| "personal standup" | Runs personal standup, posts to channel |
 | "weekly review" | Runs weekly review, posts summary |
 | "what's on my plate?" | Lists all work tasks |
 | "personal tasks" | Lists all personal tasks |
-| "what's blocking Lilla?" | Shows tasks blocking Lilla |
-| "mark IMCAS done" | Completes matching work task |
+| "what's blocking Sarah?" | Shows tasks blocking Sarah |
+| "mark proposal done" | Completes matching work task |
 | "what's due this week?" | Lists work tasks due this week |
-| "add task: X" | Adds work task X to Obsidian |
-| "add personal task: X" | Adds personal task X to Obsidian |
-| "extract tasks from: [notes]" | Parses notes, outputs add commands |
+| "add task: X" | Adds work task X |
+| "add personal task: X" | Adds personal task X |
 
 ---
 
-## Examples
+## Dataview Integration
 
-**Morning work check-in:**
-```
-$ python3 scripts/standup.py
+Add these queries to your Obsidian daily note template:
 
-📋 Daily Standup — Tuesday, January 21
+### Today's Tasks
 
-🎯 #1 Priority: Complete project proposal draft
-   ↳ Blocking: Sarah (client review)
-
-⏰ Due Today:
-  • Complete project proposal draft
-  • Schedule team sync
-
-🔴 High Priority:
-  • Review Q1 budget (due: 2026-01-23)
+```dataview
+TASK
+FROM "03-Areas/Work/Work Tasks.md"
+WHERE due = date("today")
+SORT due ASC
+LIMIT 10
 ```
 
-**Personal task check-in:**
-```
-$ python3 scripts/personal_standup.py
+### This Week
 
-🏠 Personal Daily Standup — Thursday, January 22
-
-🎯 #1 Priority: Quality time with parents
-
-🟡 Should Do This Week:
-  • Call mom (🗓️2026-01-23)
-  • Gym session (🗓️2026-01-25)
+```dataview
+TASK
+FROM "03-Areas/Work/Work Tasks.md"
+WHERE due > date("today") AND due <= date("today") + dur(7 days)
+SORT due ASC
+LIMIT 10
 ```
 
-**Adding a task:**
-```
-$ python3 scripts/tasks.py add "Draft blog post" --priority high --due 2026-01-25
+### Completed Today
 
-✅ Added task: Draft blog post
-```
-
-**Extracting from meeting notes:**
-```
-$ python3 scripts/extract_tasks.py --from-text "Meeting: Sarah needs budget review, create project timeline"
-
-# Extracted 2 task(s) from meeting notes
-# Run these commands to add them:
-
-tasks.py add "Budget review for Sarah" --priority high
-tasks.py add "Create project timeline" --priority medium
+```dataview
+TASK
+FROM "03-Areas/Work/Work Tasks.md"
+WHERE completed AND due = date("today")
+SORT file.mtime DESC
 ```
 
----
-
-## Integration Points
-
-- **Telegram Journaling group:** Standup/review summaries posted automatically
-- **Obsidian:** Daily standups logged to `01-Daily/YYYY-MM-DD.md`
-- **MEMORY.md:** Patterns and recurring blockers promoted during weekly reviews
-- **Cron:** Automated standups and reviews (Work + Personal)
+**Note:** Adjust the `FROM` path to match your Obsidian vault structure.
 
 ---
 
@@ -322,23 +349,24 @@ tasks.py add "Create project timeline" --priority medium
 
 **"Tasks file not found"**
 ```bash
-# Verify Obsidian vault is accessible
-ls ~/Obsidian/03-Areas/ShapeScale/Work Tasks.md
-ls ~/Obsidian/03-Areas/Personal/Personal Tasks.md
-
-# Create task files from templates if needed
-# See: https://github.com/kesslerio/task-tracker-clawdbot-skill/tree/main/assets/templates
+# Configure your paths
+export TASK_TRACKER_WORK_FILE="$HOME/path/to/Work Tasks.md"
+export TASK_TRACKER_PERSONAL_FILE="$HOME/path/to/Personal Tasks.md"
 ```
 
 **Tasks not showing up**
-- Check Obsidian files exist at the paths above
-- Verify task format uses emoji dates (`🗓️YYYY-MM-DD`)
-- Run `tasks.py list --json` to debug parsing
+- Check task format uses `- [ ] **Task name**`
+- Verify section headers start with emoji: `## 🔴`, `## 🟡`, etc.
+- Run `tasks.py list` to debug parsing
 
-**Date parsing issues**
-- Due dates must use: `🗓️YYYY-MM-DD` format
+**Date filtering issues**
+- Due dates must use emoji format: `🗓️YYYY-MM-DD`
 - Examples: `🗓️2026-01-22`, `🗓️2026-12-31`
-- The emoji date is required for Dataview compatibility
+
+**Dataview queries empty**
+- Install Dataview community plugin
+- Adjust `FROM` path to match your vault structure
+- Reload Obsidian after installing plugin
 
 ---
 
@@ -351,53 +379,18 @@ ls ~/Obsidian/03-Areas/Personal/Personal Tasks.md
 | `scripts/personal_standup.py` | Personal daily standup generator |
 | `scripts/weekly_review.py` | Weekly review generator |
 | `scripts/extract_tasks.py` | Extract tasks from meeting notes |
-| `scripts/utils.py` | Shared utilities (DRY) |
-| `assets/templates/` | Templates for Obsidian task files |
+| `scripts/utils.py` | Shared utilities |
+| `assets/templates/` | Template task files |
 
 ---
 
-## Dataview Integration
+## Migration from Legacy Format
 
-This skill is designed to work seamlessly with Dataview in Obsidian.
+If you were using `~/clawd/memory/work/TASKS.md`:
 
-### Daily Note Query (Work Tasks)
-
-```dataview
-TASK
-FROM "03-Areas/ShapeScale/Work Tasks.md"
-WHERE due = date("today")
-SORT due ASC
-LIMIT 10
-```
-
-### Daily Note Query (Personal Tasks)
-
-```dataview
-TASK
-FROM "03-Areas/Personal/Personal Tasks.md"
-WHERE due = date("today")
-SORT due ASC
-LIMIT 10
-```
-
-### Completed Today (Work)
-
-```dataview
-TASK
-FROM "03-Areas/ShapeScale/Work Tasks.md"
-WHERE completed AND due = date("today")
-SORT file.mtime DESC
-```
-
----
-
-## Migrating from Legacy Format
-
-If you were using the old `~/clawd/memory/work/TASKS.md`:
-
-1. **Move your tasks** to `~/Obsidian/03-Areas/ShapeScale/Work Tasks.md`
+1. **Set environment variables** pointing to your new files
 2. **Convert dates** from `Due: ASAP` to `🗓️2026-01-22`
 3. **Convert sections** from `## High Priority` to `## 🔴 Q1: Do Now`
 4. **Remove inline metadata** - convert `  - Due: 2026-01-22` to `🗓️2026-01-22`
 
-The skill now reads directly from Obsidian, eliminating file synchronization issues.
+The skill auto-detects format and falls back to legacy if Obsidian files don't exist.

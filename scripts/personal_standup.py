@@ -134,8 +134,10 @@ def format_personal_standup(output: dict, date_display: str) -> str:
     # Completed
     if output['completed']:
         lines.append(f"✅ **Completed:** ({len(output['completed'])} items)")
-        for t in output['completed']:
+        for t in output['completed'][:5]:  # Limit to 5
             lines.append(f"  • {t['title']}")
+        if len(output['completed']) > 5:
+            lines.append(f"  • ... and {len(output['completed']) - 5} more")
     
     return '\n'.join(lines)
 
@@ -155,7 +157,7 @@ def generate_personal_standup(date_str: str = None, json_output: bool = False) -
     
     date_display = standup_date.strftime("%A, %B %d")
     
-    # Build output
+    # Build output using new task structure
     output = {
         'date': str(standup_date),
         'date_display': date_display,

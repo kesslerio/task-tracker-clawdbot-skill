@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """
 Task Tracker CLI - Supports both Work and Personal tasks.
+
+Usage:
+    tasks.py list [--priority high|medium|low] [--due today|this-week|overdue]
+    tasks.py --personal list
+    tasks.py add "Task title" [--priority high|medium|low] [--due YYYY-MM-DD]
+    tasks.py done "task query"
+    tasks.py blockers [--person NAME]
+    tasks.py archive
 """
 
 import argparse
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +24,7 @@ from utils import (
     load_tasks,
     check_due_date,
     get_current_quarter,
+    ARCHIVE_DIR,
 )
 
 
@@ -35,10 +45,6 @@ def list_tasks(args):
         target_key = priority_map.get(args.priority.lower())
         if target_key:
             filtered = tasks_data.get(target_key, [])
-    
-    if args.status:
-        normalized_status = args.status.lower().replace('-', ' ')
-        filtered = [t for t in filtered if t.get('status', '').lower().replace('-', ' ') == normalized_status]
     
     if args.due:
         filtered = [t for t in filtered if check_due_date(t.get('due', ''), args.due)]
@@ -62,52 +68,69 @@ def list_tasks(args):
         area_str = f" [{task.get('area')}]" if task.get('area') else ''
         
         print(f"{checkbox} **{task['title']}**{due_str}{area_str}")
-        if task.get('description'):
-            print(f"   {task['description']}")
 
 
 def add_task(args):
     """Add a new task."""
-    tasks_file = get_tasks_file(args.personal)
+    tasks_file, format = get_tasks_file(args.personal)
+    
+    if not tasks_file.exists():
+        print(f"❌ Tasks file not found: {tasks_file}")
+        return
+    
     content = tasks_file.read_text()
     
-    # Build task entry
-    priority_section = {
-        'high': '🔴 Q1',
-        'medium': '🟡 Q2',
-        'low': '⚪ Backlog',
-    }.get(args.priority, '🟡 Q2')
+    # Build task entry with emoji date format
+    priority_patterns = {
+        'high': r'## 🔴',
+        'medium': r'## 🟡',
+        'low': r'## ⚪',
+    }
+    priority_pattern = priority_patterns.get(args.priority, r'## 🟡')
     
-    task_lines = [f'- [ ] **{args.title}**']
+    # Build task line
+    task_line = f'- [ ] **{args.title}**'
     if args.due:
-        task_lines.append(f'  🗓️{args.due}')
-    if args.owner and args.owner != 'martin' and args.owner != 'me':
-        task_lines.append(f'  owner:: {args.owner}')
+        task_line += f' 🗓️{args.due}'
     if args.area:
-        task_lines.append(f'  area:: {args.area}')
+        task_line += f' area:: {args.area}'
+    if args.owner and args.owner not in ('me', 'martin'):
+        task_line += f' owner:: {args.owner}'
     
-    task_entry = '\n'.join(task_lines)
+    # Find section and insert after header
+    section_match = re.search(rf'({priority_pattern}[^\n]*\n)', content)
     
-    # Find section and insert
-    import re
-    section_pattern = rf'(## {re.escape(priority_section)}.*?\n)(.*?)(\n## |\n---|\Z)'
-    match = re.search(section_pattern, content, re.DOTALL)
-    
-    if match:
-        insert_content = match.group(2).rstrip() + '\n\n' + task_entry + '\n'
-        new_content = content[:match.start(2)] + insert_content + content[match.end(2):]
+    if section_match:
+        insert_pos = section_match.end()
+        # Skip any subsection headers or blank lines
+        remaining = content[insert_pos:]
+        lines = remaining.split('\n')
+        skip_lines = 0
+        for line in lines:
+            if line.strip() == '' or line.startswith('**') or line.startswith('>'):
+                skip_lines += 1
+            else:
+                break
+        insert_pos += sum(len(lines[i]) + 1 for i in range(skip_lines))
+        
+        new_content = content[:insert_pos] + task_line + '\n' + content[insert_pos:]
         tasks_file.write_text(new_content)
         task_type = "Personal" if args.personal else "Work"
         print(f"✅ Added {task_type} task: {args.title}")
     else:
-        print(f"⚠️ Section '{priority_section}' not found. Add manually.")
+        print(f"⚠️ Could not find section matching '{priority_pattern}'. Add manually.")
 
 
 def done_task(args):
     """Mark a task as done using fuzzy matching."""
-    tasks_file = get_tasks_file(args.personal)
+    tasks_file, format = get_tasks_file(args.personal)
+    
+    if not tasks_file.exists():
+        print(f"❌ Tasks file not found: {tasks_file}")
+        return
+    
     content = tasks_file.read_text()
-    tasks_data = parse_tasks(content, args.personal)
+    tasks_data = parse_tasks(content, args.personal, format)
     tasks = tasks_data['all']
     
     query = args.query.lower()
@@ -126,8 +149,12 @@ def done_task(args):
     
     task = matches[0]
     
-    # Update in content
-    old_line = task['raw_lines'][0]
+    # Update in content - use raw_line (single line)
+    old_line = task.get('raw_line', '')
+    if not old_line:
+        print("⚠️ Could not find task line to update.")
+        return
+    
     new_line = old_line.replace('- [ ]', '- [x]')
     
     new_content = content.replace(old_line, new_line)
@@ -160,11 +187,14 @@ def show_blockers(args):
 
 def archive_done(args):
     """Archive completed tasks to quarterly file."""
-    from utils import ARCHIVE_DIR
+    tasks_file, format = get_tasks_file(args.personal)
     
-    tasks_file = get_tasks_file(args.personal)
+    if not tasks_file.exists():
+        print(f"❌ Tasks file not found: {tasks_file}")
+        return
+    
     content = tasks_file.read_text()
-    tasks_data = parse_tasks(content, args.personal)
+    tasks_data = parse_tasks(content, args.personal, format)
     done_tasks = tasks_data['done']
     
     if not done_tasks:
@@ -173,6 +203,7 @@ def archive_done(args):
     
     # Create archive entry
     quarter = get_current_quarter()
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     archive_file = ARCHIVE_DIR / f"ARCHIVE-{quarter}.md"
     
     task_type = "Personal" if args.personal else "Work"
@@ -189,15 +220,12 @@ def archive_done(args):
     archive_content += archive_entry
     archive_file.write_text(archive_content)
     
-    # Remove from done section
-    import re
-    done_section_pattern = r'(## ✅ Done.*?\n\n).*?(\n## |\n---|\Z)'
-    new_content = re.sub(
-        done_section_pattern,
-        r'\1_Move completed items here during daily standup_\n\n\2',
-        content,
-        flags=re.DOTALL
-    )
+    # Remove done tasks from main file
+    new_content = content
+    for task in done_tasks:
+        raw_line = task.get('raw_line', '')
+        if raw_line:
+            new_content = new_content.replace(raw_line + '\n', '')
     
     tasks_file.write_text(new_content)
     print(f"✅ Archived {len(done_tasks)} {task_type} tasks to {archive_file.name}")
@@ -212,7 +240,6 @@ def main():
     # List command
     list_parser = subparsers.add_parser('list', help='List tasks')
     list_parser.add_argument('--priority', choices=['high', 'medium', 'low'])
-    list_parser.add_argument('--status', choices=['todo', 'in-progress', 'blocked', 'waiting', 'done'])
     list_parser.add_argument('--due', choices=['today', 'this-week', 'overdue'])
     list_parser.set_defaults(func=list_tasks)
     

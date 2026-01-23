@@ -2,18 +2,38 @@
 """
 Shared utilities for task tracker scripts.
 Supports both Obsidian (preferred) and legacy TASKS.md formats.
+
+Configuration via environment variables:
+- TASK_TRACKER_WORK_FILE: Path to work tasks file
+- TASK_TRACKER_PERSONAL_FILE: Path to personal tasks file
+- TASK_TRACKER_LEGACY_FILE: Path to legacy tasks file (fallback)
+- TASK_TRACKER_ARCHIVE_DIR: Path to archive directory
 """
 
+import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 
-# Try Obsidian first, fall back to legacy
-OBSIDIAN_WORK = Path.home() / "Obsidian" / "03-Areas" / "ShapeScale" / "Work Tasks.md"
-OBSIDIAN_PERSONAL = Path.home() / "Obsidian" / "03-Areas" / "Personal" / "Personal Tasks.md"
-LEGACY_WORK = Path.home() / "clawd" / "memory" / "work" / "TASKS.md"
-ARCHIVE_DIR = Path.home() / "clawd" / "memory" / "work"
+# Configurable paths with sensible defaults
+# Users should set these environment variables for their own setup
+OBSIDIAN_WORK = Path(os.getenv(
+    'TASK_TRACKER_WORK_FILE',
+    Path.home() / "Obsidian" / "03-Areas" / "Work" / "Work Tasks.md"
+))
+OBSIDIAN_PERSONAL = Path(os.getenv(
+    'TASK_TRACKER_PERSONAL_FILE',
+    Path.home() / "Obsidian" / "03-Areas" / "Personal" / "Personal Tasks.md"
+))
+LEGACY_WORK = Path(os.getenv(
+    'TASK_TRACKER_LEGACY_FILE',
+    Path.home() / "clawd" / "memory" / "work" / "TASKS.md"
+))
+ARCHIVE_DIR = Path(os.getenv(
+    'TASK_TRACKER_ARCHIVE_DIR',
+    Path.home() / "clawd" / "memory" / "work"
+))
 
 
 def get_current_quarter() -> str:
@@ -102,10 +122,11 @@ def parse_tasks(content: str, personal: bool = False, format: str = 'obsidian') 
         # Detect section headers
         if line.startswith('## '):
             if format == 'obsidian':
-                section_match = re.match(r'## ([🔴🟡🟠👥⚪✅]) (?:.*?: )?(.+)', line)
+                # Match emoji at start of section name
+                section_match = re.match(r'## ([🔴🟡🟠👥⚪✅])', line)
             else:
                 # Legacy format: ## 🔴 High Priority
-                section_match = re.match(r'## ([🔴🟡🟢📅✅]) (.+)', line)
+                section_match = re.match(r'## ([🔴🟡🟢📅✅])', line)
             
             if section_match:
                 emoji = section_match.group(1)
@@ -113,41 +134,38 @@ def parse_tasks(content: str, personal: bool = False, format: str = 'obsidian') 
             continue
         
         # Detect task line
-        if format == 'obsidian':
-            # Obsidian: - [ ] **Task name** 🗓️2026-01-22 area:: Sales
-            task_match = re.match(r'^- \[([ x])\] \*\*(.+?)\*\*(.*)$', line)
-        else:
-            # Legacy: - [ ] **Task name** — Description
-            task_match = re.match(r'^- \[([ x])\] \*\*(.+?)\*\*(.*)$', line)
+        # Format: - [ ] **Task name** 🗓️2026-01-22 area:: Sales
+        task_match = re.match(r'^- \[([ xX])\] \*\*(.+?)\*\*(.*)$', line)
         
         if task_match:
-            done = task_match.group(1) == 'x'
+            done = task_match.group(1).lower() == 'x'
             title = task_match.group(2).strip()
             rest = task_match.group(3).strip()
             
             due_str = None
             area = None
+            goal = None
+            owner = None
+            blocks = None
             
             if format == 'obsidian':
-                # Parse emoji date and inline fields
+                # Parse emoji date
                 date_match = re.search(r'🗓️(\d{4}-\d{2}-\d{2})', rest)
                 if date_match:
                     due_str = date_match.group(1)
                 
-                for field in ['area::', 'goal::', 'owner::']:
-                    field_match = re.search(rf'{field}([^\s]+)', rest)
-                    if field_match:
-                        value = field_match.group(1).strip()
-                        if field == 'area::':
-                            area = value
-            else:
-                # Legacy: Parse "Due: X" and extract from description
-                due_match = re.search(r'Due:\s*([^\s—]+)', rest)
-                if due_match:
-                    due_str = due_match.group(1)
+                # Parse inline fields (handle multi-word values)
+                area_match = re.search(r'area::\s*([^\n]+?)(?=\s+\w+::|$)', rest)
+                if area_match:
+                    area = area_match.group(1).strip()
                 
-                # Extract area from category headers if we tracked them
-                # Legacy format doesn't have area field
+                goal_match = re.search(r'goal::\s*(\[\[[^\]]+\]\]|[^\s]+)', rest)
+                if goal_match:
+                    goal = goal_match.group(1).strip()
+                
+                owner_match = re.search(r'owner::\s*([^\s]+)', rest)
+                if owner_match:
+                    owner = owner_match.group(1).strip()
             
             current_task = {
                 'title': title,
@@ -155,6 +173,9 @@ def parse_tasks(content: str, personal: bool = False, format: str = 'obsidian') 
                 'section': current_section,
                 'due': due_str,
                 'area': area,
+                'goal': goal,
+                'owner': owner,
+                'blocks': blocks,
                 'raw_line': line,
             }
             
@@ -165,7 +186,7 @@ def parse_tasks(content: str, personal: bool = False, format: str = 'obsidian') 
             elif current_section:
                 result[current_section].append(current_task)
             
-            # Check if due today
+            # Check if due today (only for tasks WITH a due date)
             if due_str and not done:
                 try:
                     due_date = datetime.strptime(due_str, '%Y-%m-%d').date()
@@ -177,16 +198,23 @@ def parse_tasks(content: str, personal: bool = False, format: str = 'obsidian') 
             continue
         
         # Handle task continuation (indented lines)
-        if current_task and line.startswith('  - '):
-            meta_line = line.strip()[2:].strip()
+        if current_task and line.startswith('  '):
+            meta_line = line.strip()
             
-            if format == 'legacy':
-                if meta_line.lower().startswith('due:'):
-                    due_str = meta_line.split(':', 1)[1].strip()
-                    if not current_task['due']:
-                        current_task['due'] = due_str
-                elif meta_line.lower().startswith('blocks:'):
-                    current_task['blocks'] = meta_line.split(':', 1)[1].strip()
+            # Remove leading "- " if present
+            if meta_line.startswith('- '):
+                meta_line = meta_line[2:]
+            
+            # Parse legacy format metadata
+            if meta_line.lower().startswith('due:'):
+                due_str = meta_line.split(':', 1)[1].strip()
+                if not current_task['due']:
+                    current_task['due'] = due_str
+            elif meta_line.lower().startswith('blocks:'):
+                current_task['blocks'] = meta_line.split(':', 1)[1].strip()
+            elif meta_line.lower().startswith('owner:'):
+                if not current_task.get('owner'):
+                    current_task['owner'] = meta_line.split(':', 1)[1].strip()
     
     return result
 
@@ -197,15 +225,12 @@ def load_tasks(personal: bool = False, force_legacy: bool = False) -> tuple[str,
     
     if not tasks_file.exists():
         task_type = "Personal" if personal else "Work"
-        source = "Obsidian" if format == 'obsidian' else "legacy"
         
         print(f"\n❌ {task_type} tasks file not found: {tasks_file}\n", file=sys.stderr)
-        
-        if format == 'obsidian':
-            print(f"Hint: This skill reads from Obsidian by default.")
-            print(f"Make sure: ~/Obsidian/03-Areas/{'Personal' if personal else 'ShapeScale'}/{'Personal Tasks.md' if personal else 'Work Tasks.md'}")
-        else:
-            print(f"Hint: Legacy format at: {LEGACY_WORK}")
+        print("Configure paths via environment variables:", file=sys.stderr)
+        print("  TASK_TRACKER_WORK_FILE=~/path/to/Work Tasks.md", file=sys.stderr)
+        print("  TASK_TRACKER_PERSONAL_FILE=~/path/to/Personal Tasks.md", file=sys.stderr)
+        print("", file=sys.stderr)
         
         sys.exit(1)
     
@@ -217,7 +242,7 @@ def load_tasks(personal: bool = False, force_legacy: bool = False) -> tuple[str,
 def check_due_date(due: str, check_type: str = 'today') -> bool:
     """Check if a due date matches the given type."""
     if not due:
-        return check_type == 'today'
+        return False  # Tasks without due dates don't match any filter
     
     today = datetime.now().date()
     week_end = today + timedelta(days=(6 - today.weekday()))
@@ -251,5 +276,6 @@ def get_section_display_name(section: str, personal: bool = False) -> str:
     if personal:
         section_names['q1'] = '🔴 Must Do Today'
         section_names['q2'] = '🟡 Should Do This Week'
+        section_names['q3'] = '🟠 Waiting On'
     
     return section_names.get(section, section or 'Uncategorized')
